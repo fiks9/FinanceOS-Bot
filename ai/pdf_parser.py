@@ -2,8 +2,9 @@
 PDF Parser для банківських виписок — pdfplumber-based.
 
 Підтримувані банки:
-  1. A-Банк  — 11 колонок, дата\nчас у col[0], MCC у col[3], сума у col[4]
-  2. Generic — fallback
+  1. A-Банк  
+  2. Monobank 
+  3. Generic — fallback
 
 Ключові правила класифікації:
   • від'ємна сума (col[4] починається з '-') → EXPENSE або TRANSFER_OUT
