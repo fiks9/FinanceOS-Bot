@@ -1,0 +1,38 @@
+# ============================================================
+#  FinanceOS Bot — Python залежності
+#  Сумісний з Python 3.11+
+# ============================================================
+
+# --- Telegram Bot Framework ---
+aiogram==3.25.0
+
+# --- AI / LLM ---
+langchain>=0.3.21,<1.0
+langchain-groq>=0.2.4,<1.0
+langchain-community>=0.3.20,<1.0
+
+# --- Embeddings (локальна модель all-MiniLM-L6-v2) ---
+sentence-transformers==3.4.1
+
+# --- Supabase (async підтримка через httpx) ---
+supabase==2.13.0
+
+# --- Валідація та конфіг ---
+pydantic==2.11.0
+pydantic-settings==2.8.1
+
+# --- Обробка даних ---
+pandas==2.2.3
+pdfplumber==0.11.9
+
+# --- Змінні середовища ---
+python-dotenv==1.0.1
+
+# --- Async HTTP ---
+httpx==0.28.1
+
+# --- Логування ---
+loguru==0.7.3
+
+# --- Фонові задачі ---
+apscheduler==3.11.2

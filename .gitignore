@@ -1,0 +1,65 @@
+# ============================================================
+#  FinanceOS Bot — .gitignore
+# ============================================================
+
+# --- Секрети та конфіг середовища ---
+.env
+.env.local
+.env.*.local
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.pyo
+
+# --- Віртуальні середовища ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Збірка та дистрибуція ---
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# --- Інструменти ---
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# --- Локальні бази даних ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Логи ---
+*.log
+logs/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- ОС ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Тимчасові та тестові файли (не для прод) ---
+parse_test.py
+replace_cents.py
+replace_cents2.py
+scripts/
+Plan/
