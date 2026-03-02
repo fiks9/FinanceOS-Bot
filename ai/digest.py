@@ -46,7 +46,7 @@ async def generate_weekly_digest(user: dict, db) -> str:
     comm_style = user.get("communication_style", "balanced")
     
     # ── Завантажуємо базовий контекст ──────────────────────────────────────────
-    balance, top_cats, goals, _, trends = await _load_context(db, user_id)
+    balance, top_cats, goals, _, trends, _ = await _load_context(db, user_id)
     
     total_income = balance.get("total_income") or 0
     total_expenses = balance.get("total_expenses") or 0

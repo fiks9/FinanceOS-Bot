@@ -8,11 +8,17 @@ Financial Advisor — AI відповіді на фінансові питанн
 до контексту щоб модель «пам'ятала» попередні питання в межах сесії.
 """
 from __future__ import annotations
-from bot.utils import fmt_amt
+import asyncio
+import calendar
+import math
+import re
+from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from loguru import logger
 
-from ai.llm import get_smart_llm
+from ai.llm import get_smart_llm, get_fast_llm
+from bot.utils import fmt_amt
 from database import repository as repo
 
 MANDATORY_CATEGORIES = {
@@ -157,12 +163,6 @@ async def answer_financial_question(
 
     Повертає текст відповіді для відправки у Telegram.
     """
-    import calendar
-    from datetime import datetime
-
-    import re
-    import math
-
     user_id = user["id"]
     currency = user.get("currency", "₴")
     budget_limit = user.get("monthly_income", 0) or 0
@@ -312,8 +312,6 @@ async def generate_budget_insight(user: dict, db) -> str:
     safety_buffer = current_limit * 0.10
     free_balance = current_limit - mandatory_expenses - safety_buffer
 
-    import calendar
-    from datetime import datetime
     now = datetime.now()
     _, total_days = calendar.monthrange(now.year, now.month)
     remaining_days = total_days - now.day + 1
@@ -336,6 +334,7 @@ async def generate_budget_insight(user: dict, db) -> str:
         goals=_format_goals(goals),
         savings_plans="Не застосовується для загального звіту.",
         data_sufficiency_warning="Дані для аналізу достатні.",
+        covered_topics_section="",
         currency=currency,
     )
     prompt = (
@@ -346,26 +345,22 @@ async def generate_budget_insight(user: dict, db) -> str:
         "Якщо немає витрат — просто підбадьор розпочати їх записувати."
     )
     
-    from langchain_core.messages import SystemMessage, HumanMessage
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=prompt)
     ]
-    
-    from ai.llm import get_fast_llm
-    llm = get_fast_llm()  # Для інсайту швидкості достатньо
+
+    llm = get_fast_llm()
     try:
         response = await llm.ainvoke(messages)
         return response.content
     except Exception as e:
-        import loguru
-        loguru.logger.error(f"Insight generation failed: {e}")
+        logger.error(f"Insight generation failed: {e}")
         return "Всі показники в нормі, продовжуй в тому ж дусі!"
 
 
 async def _load_context(db, user_id: str) -> tuple:
     """Паралельно завантажуємо всі потрібні дані з Supabase."""
-    import asyncio
     balance_task = repo.get_monthly_balance(db, user_id)
     stats_task = repo.get_db_stats(db, user_id)
     goals_task = repo.get_active_goals(db, user_id)

@@ -1,0 +1,328 @@
+# Аудит коду — FinanceOS Bot
+
+---
+
+## 🔴 БАГИ (можуть зламати роботу)
+
+### 1. [generate_budget_insight](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py#291-364) — не передає `covered_topics_section` у форматування промпту
+**Файл:** [ai/advisor.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py), рядки 324–340
+
+`_ADVISOR_SYSTEM` містить плейсхолдер `{covered_topics_section}` (рядок 76 промпту), але [generate_budget_insight](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py#291-364) викликає `.format()` без цього ключа:
+
+```python
+system_prompt = _ADVISOR_SYSTEM.format(
+    ...
+    # covered_topics_section — ВІДСУТНІЙ
+)
+```
+
+**Наслідок:** `KeyError: 'covered_topics_section'` при кожному виклику `/budget`.  
+**Виправлення:** додати `covered_topics_section=""` до `.format()` у [generate_budget_insight](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py#291-364).
+
+---
+
+### 2. [_load_context](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py#366-380) повертає 6 значень, [digest.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/digest.py) розпаковує лише 5
+**Файл:** [ai/digest.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/digest.py), рядок 49
+
+```python
+# _load_context повертає: balance, all_cats, goals, history, trends, weeks_in_db
+balance, top_cats, goals, _, trends = await _load_context(db, user_id)
+# ^^ розпакування з 5 змінних — ValueError при виконанні
+```
+
+[_load_context](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py#366-380) в [advisor.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/advisor.py) (рядок 375–378) повертає кортеж з **6** елементів: `balance, all_cats, goals, history, trends, weeks_in_db`. Але [digest.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/ai/digest.py) розпаковує лише **5**, пропускаючи `weeks_in_db`.  
+**Наслідок:** `ValueError: too many values to unpack` — weekly digest ніколи не відправляється.  
+**Виправлення:** `balance, top_cats, goals, _, trends, _ = await _load_context(db, user_id)`
+
+---
+
+### 3. [bot/handlers/errors.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/handlers/errors.py) — router створений, але НІКОЛИ не підключений
+**Файл:** [bot/handlers/errors.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/handlers/errors.py), рядок 7 / [bot/setup.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/setup.py)
+
+`router = Router(name="global_errors")` з декоратором `@router.errors()` існує, але ніде не додається до `dp` у [setup.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/setup.py). Жоден `dp.include_router(errors.router)` — відсутній.  
+**Наслідок:** глобальний error handler повністю не працює. Неопрацьовані виключення не логуються та не повідомляють юзера.  
+**Виправлення:** додати до [setup.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/setup.py):
+```python
+from bot.handlers.errors import router as errors_router
+dp.include_router(errors_router)
+```
+
+---
+
+### 4. [database/repository.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/database/repository.py) — `import logging` замість `loguru` у вловленому exception
+**Файл:** [database/repository.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/database/repository.py), рядок 94
+
+```python
+except Exception as e:
+    import logging
+    logging.error(f"Failed to save embedding: {e}")
+```
+
+Весь проект використовує `loguru.logger`, але тут підключається стандартний `logging`. Це не зламає бот, але помилки embedding'ів не попадуть у loguru-лог.  
+**Виправлення:** замінити на `from loguru import logger; logger.error(...)`.
+
+---
+
+### 5. [bot/routers/history.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/routers/history.py) — імпортує `CONFIDENCE_THRESHOLD` з `ai_chat`, хоча значення однакове
+**Файл:** [bot/routers/history.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/routers/history.py), рядок 12
+
+```python
+from bot.routers.ai_chat import _find_category_id, CONFIDENCE_THRESHOLD
+```
+
+Імпортується приватна функція [_find_category_id](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/routers/ai_chat.py#557-593) з іншого роутера. Це не баг сам по собі, але **жорстка залежність між роутерами**, яка може призвести до циклічного імпорту або прихованих помилок при рефакторингу. Детальніше — в розділі ДУБЛІКАТИ.
+
+---
+
+### 6. [bot/config.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/config.py) — `settings = None` на рівні модуля
+**Файл:** [bot/config.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/config.py), рядки 48–49
+
+```python
+settings = None  # type: ignore[assignment]
+# Буде замінено в bot/run.py: from bot.config import get_settings; settings = get_settings()
+```
+
+Ця заміна **ніколи не відбувається** — у [bot/run.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/run.py) немає `settings = get_settings()`. Якщо будь-який файл напише `from bot.config import settings` і спробує використати його, отримає `None`. Наразі ніхто так не робить, але залишок вводить в оману.  
+**Виправлення:** видалити рядки 46–49 повністю.
+
+---
+
+## 🟡 МЕРТВИЙ КОД (можна безпечно видалити)
+
+### 1. [bot/handlers/commands.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/handlers/commands.py) — повністю порожній legacy-файл
+**Файл:** [bot/handlers/commands.py](file:///c:/Users/0xFiks/Desktop/github/FinanceOS%20Bot/bot/handlers/commands.py) (7 рядків)
+
+Містить лише коментар «не використовується». Ніхто його не імпортує. Можна видалити разом із папкою `bot/handlers/` (якщо `errors.py` перенести в `bot/`).
+
+---
+
+### 2. `bot/services/transactions.py` — модуль з трьома функціями, жодна не викликається
+**Файл:** `bot/services/transactions.py`
+
+Перевірено grep-ом: `from bot.services.transactions` — **жодного результату** по всьому проекту. Функції `extract_transaction_candidate`, `find_goal_id`, `find_category_id`, `save_transaction_and_confirm`, `build_confirmation_text` — повністю дублюють логіку з `ai_chat.py`, але нікуди не підключені.
+
+---
+
+### 3. `bot/services/memory.py` — функції не використовуються
+**Файл:** `bot/services/memory.py`
+
+`from bot.services.memory` — **жодного результату** в проекті. Функції `safe_save_message` та `build_history_context` написані, але не викликаються ніде. Логіка вбудована безпосередньо в роутери.
+
+---
+
+### 4. `database/repository.py` — три функції без жодного виклику
+
+| Функція | Рядок | Причина |
+|---|---|---|
+| `get_user_by_tg_id` | 45 | Ніде не викликається (є `get_or_create_user`) |
+| `search_similar_transactions` | 117 | Ніде не викликається |
+| `get_top_expense_categories` | 208 | Ніде не викликається (використовується `get_db_stats` що повертає ті самі дані) |
+
+---
+
+### 5. `database/queries.py` — файл-заглушка
+**Файл:** `database/queries.py` (6 рядків)
+
+Містить лише коментар «заглушка — Крок 2+». Нічого не містить, ніхто не імпортує.
+
+---
+
+### 6. `services/__init__.py` (корінь) — порожній пакет
+**Файл:** `services/__init__.py` (2 рядки)
+
+Коментар «csv_processor.py буде у Етапі 2». Нічого більше немає, ніхто не імпортує.
+
+---
+
+### 7. `bot/states.py` — кілька FSM станів ніколи не використовуються
+
+| Стан | Причина |
+|---|---|
+| `AddTransactionStates.waiting_for_amount` | Немає жодного `@router.message(AddTransactionStates.waiting_for_amount, ...)` хендлера |
+| `AddTransactionStates.waiting_for_category` | Те саме — немає хендлера |
+| `CSVStates.processing` | Немає хендлера |
+| `CSVStates.reviewing_results` | Немає хендлера |
+| `GoalStates.waiting_for_confirm` | Немає хендлера |
+
+> **Примітка:** `CSVStates.waiting_for_file` також не має хендлера — FSM переходить у цей стан (`onboarding.py:164`), але жоден роутер його не перехоплює. Документ хендлер `@router.message(F.document)` не фільтрує по стану, тому фактично працює, але стан `waiting_for_file` — зайвий.
+
+---
+
+## 🔵 ДУБЛІКАТИ (варто об'єднати)
+
+### 1. `_find_category_id` — існує в двох місцях з ідентичною логікою
+
+**`bot/routers/ai_chat.py` рядок 557** та **`bot/services/transactions.py` рядок 41** — повністю однаковий алгоритм (точний збіг → substring → token overlap).
+
+Додатково `history.py` імпортує її прямо з `ai_chat.py` (`from bot.routers.ai_chat import _find_category_id`), що створює залежність між роутерами.  
+**Варіант виправлення:** перенести в `bot/services/transactions.py` та імпортувати звідти обидва роутери.
+
+---
+
+### 2. `_find_goal_id` — існує в двох місцях з ідентичною логікою
+
+**`bot/routers/ai_chat.py` рядок 541** та **`bot/services/transactions.py` рядок 25** — повністю однаковий алгоритм.
+
+---
+
+### 3. `_build_history_context` — дубльована логіка
+
+**`bot/routers/ai_chat.py` рядки 92–115** та **`bot/services/memory.py` рядки 30–60** — майже ідентична функція. Обидві завантажують `recent_msgs`, формують `context_str`, читають `last_action` та `covered_topics` з FSM. Версія в `ai_chat.py` хардкодить `limit=8`, версія в `memory.py` параметризована.
+
+---
+
+### 4. `_format_number` в `budget.py` — обгортка навколо `fmt_amt`
+
+**`bot/routers/budget.py` рядки 19–21:**
+```python
+def _format_number(n: float) -> str:
+    """Форматуємо число: 30500 → '30 500'"""
+    return fmt_amt(n)
+```
+
+Ця функція нічого не робить окрім делегування до `fmt_amt`. Всі виклики `_format_number(x)` можна замінити на `fmt_amt(x)` і видалити функцію.
+
+---
+
+### 5. `CONFIDENCE_THRESHOLD = 0.6` — оголошений у двох місцях
+
+**`bot/routers/ai_chat.py` рядок 39** та **`bot/routers/history.py` рядок 12** (імпортує з `ai_chat`).
+
+---
+
+### 6. `parse_test.py` — копія функції `parse_natural_amount` з `bot/parsers.py`
+
+**Файл:** `parse_test.py`, рядки 4–73
+
+Повна копія функції `parse_natural_amount`, з невеликою різницею в рядку 32 (відсутній `or re.search(r'\d[кk]', text.replace(' ', ''))`). Це тест-скрипт, але він містить стару версію функції поруч з актуальною.
+
+---
+
+## ⚫ ЗАЛИШКИ ПІСЛЯ ПРАВОК (забули прибрати)
+
+### 1. `parse_test.py` — тестовий скрипт в корені проекту
+**Файл:** `parse_test.py` (94 рядки)
+
+Явний one-off тест, що виводить `print("[25000]: 25000.0 == 25000 -> True")`. Не є частиною жодного test-suite. Лежить прямо в корені поруч з продакшн-кодом.
+
+---
+
+### 2. `replace_cents.py` та `replace_cents2.py` — одноразові скрипти-рефакторингу
+**Файли:** `replace_cents.py` (64 рядки), `replace_cents2.py` (53 рядки)
+
+Це скрипти які робили пошук-заміну форматування чисел у файлах проекту. Рефакторинг вже виконано (всі файли використовують `fmt_amt`). Ці скрипти — залишки після правок, в проді не потрібні.
+
+---
+
+### 3. `scripts/` — три debug-скрипти з хардкодженими шляхами до файлів
+**Файли:** `scripts/test_mono.py`, `scripts/test_mono2.py`, `scripts/test_pdf.py`
+
+Всі три:
+- хардкодять шлях `'Examples of Statements/Monobank.pdf'` та `'A-Bank.pdf'`
+- є `sys.path.insert(0, '.')` hacky imports
+- призначені для локального дебагу парсерів
+
+Не є частиною test-suite, не виконуються ботом. Якщо тести потрібні — краще перенести в `tests/` з pytest.
+
+---
+
+### 4. `Plan/` — папка з текстовими файлами плану розробки
+
+**Файли:** `Plan/plan.txt` (24 КБ), `Plan/Plan better.txt` (3 КБ)
+
+Документи планування, не впливають на роботу. Не мають бути в production-репозиторії.
+
+---
+
+### 5. `bot/config.py` рядки 46–49 — коментар-обіцянка яка не виконалась
+Вже описано в розділі БАГИ (пункт 6).
+
+---
+
+### 6. `services/__init__.py` (корінь) — коментар «буде у Етапі 2»
+**Файл:** `services/__init__.py`, рядок 1
+
+```python
+# services package — csv_processor.py буде у Етапі 2
+```
+
+Етап 2 давно пройдено. CSV логіка є в `ai/csv_parser.py`. Цей коментар не актуальний.
+
+---
+
+### 7. `database/repository.py` рядок 7 — «заглушки / скелет»
+**Файл:** `database/repository.py`, рядок 7
+
+```python
+# Зараз: заглушки / скелет — буде заповнено на Кроці 2–3.
+```
+
+Репо давно заповнено повністю. Коментар не актуальний.
+
+---
+
+### 8. `bot/routers/ai_chat.py` рядок 684 — `import re` всередині функції
+**Файл:** `bot/routers/ai_chat.py`, рядки 47 та 684
+
+`import re` є на рівні модуля (рядок 47), але в `_handle_set_goal` він знову імпортується локально (рядок 684). Зайвий імпорт залишився після правок.
+
+---
+
+### 9. `ai/advisor.py` рядки 315–316, 349, 355 — inline-імпорти всередині функцій
+
+У `generate_budget_insight` та `answer_financial_question` зустрічаються:
+```python
+import calendar
+from datetime import datetime
+import re
+import math
+from langchain_core.messages import SystemMessage, HumanMessage
+from ai.llm import get_fast_llm
+```
+
+Всі ці пакети використовуються постійно — їх місце на рівні модуля. Це залишок поступової розробки коли код писався "по шматках".
+
+---
+
+## ✅ ЧИСТО (все в порядку)
+
+| Файл/модуль | Стан |
+|---|---|
+| `bot/run.py` | Чисто. Точка входу коректна |
+| `bot/setup.py` | Чисто. Фабрика правильно налаштована *(окрім відсутнього errors router — вже в багах)* |
+| `bot/fsm_storage.py` | Чисто. Кастомний Supabase FSM storage реалізований правильно |
+| `bot/middlewares/auth.py` | Чисто |
+| `bot/middlewares/db.py` | Чисто |
+| `bot/keyboards.py` | Чисто. Всі CallbackData та keyboard builders використовуються |
+| `bot/parsers.py` | Чисто. Реально викликається з 4 роутерів |
+| `bot/utils.py` | Чисто. `fmt_amt` є єдиним форматером |
+| `bot/scheduler.py` | Чисто |
+| `bot/states.py` | Чисто *(окрім невикористаних станів — в мертвому коді)* |
+| `ai/llm.py` | Чисто. Два LLM singleton'и |
+| `ai/intent.py` | Чисто. Всі 4 функції використовуються |
+| `ai/embeddings.py` | Чисто |
+| `database/client.py` | Чисто |
+| `database/schema.sql` | Поза аудитом Python-коду |
+| `models/schemas.py` | Чисто |
+| `bot/routers/onboarding.py` | Чисто |
+| `bot/routers/goals.py` | Чисто |
+| `bot/routers/budget.py` | Чисто *(окрім `_format_number` — в дублікатах)* |
+| `bot/routers/document_handler.py` | Чисто |
+| `bot/routers/history.py` | Чисто *(окрім cross-router імпорту — в дублікатах)* |
+| `bot/routers/ai_chat.py` | Чисто *(окрім дублікатів функцій та inline-імпортів)* |
+| `ai/advisor.py` | Чисто *(окрім inline-імпортів та бага з covered_topics_section)* |
+| `ai/digest.py` | **НЕ чисто** — баг розпакування кортежу |
+| `requirements.txt` | Майже чисто — `python-dateutil` відсутній (використовується `dateutil.relativedelta`) |
+
+---
+
+## ⚠️ ДОДАТКОВО: `python-dateutil` відсутній у `requirements.txt`
+
+**Файл:** `requirements.txt` — відсутній рядок  
+**Використовується:** `bot/routers/ai_chat.py`, рядки 448 та 708:
+```python
+from dateutil.relativedelta import relativedelta
+```
+
+`dateutil` є транзитивною залежністю деяких пакетів, тому може працювати локально, але на чистому Railway-деплої може впасти з `ModuleNotFoundError`.  
+**Виправлення:** додати `python-dateutil>=2.9.0` до `requirements.txt`.

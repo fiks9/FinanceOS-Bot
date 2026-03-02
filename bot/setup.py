@@ -11,6 +11,7 @@ from bot.fsm_storage import SupabaseStorage
 from bot.middlewares.db import DatabaseMiddleware
 from bot.middlewares.auth import UserMiddleware
 from bot.routers import onboarding, budget, ai_chat, document_handler, goals, history
+from bot.handlers.errors import router as errors_router
 from bot.config import get_settings
 from aiogram.types import BotCommand
 
@@ -68,5 +69,7 @@ def create_bot_and_dispatcher(db: AsyncClient) -> tuple[Bot, Dispatcher]:
     dp.include_router(history.router)
     # 5. AI Chat — catchall для будь-якого тексту (повинен бути ОСТАННІМ)
     dp.include_router(ai_chat.router)
+    # 6. Global error handler — підключаємо останнім, перехоплює всі необроблені виключення
+    dp.include_router(errors_router)
 
     return bot, dp

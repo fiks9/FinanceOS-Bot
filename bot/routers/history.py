@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from loguru import logger
 
 from ai.intent import extract_transaction, generate_confirmation
-from bot.routers.ai_chat import _find_category_id, CONFIDENCE_THRESHOLD
+from bot.services.helpers import _find_category_id, CONFIDENCE_THRESHOLD
 from bot.states import EditTransactionStates
 from database import repository as repo
 

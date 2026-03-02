@@ -3,15 +3,17 @@ CRUD операції з базою даних Supabase.
 
 Всі функції async і отримують supabase клієнт як параметр
 (ін'єктується через DatabaseMiddleware).
-
-Зараз: заглушки / скелет — буде заповнено на Кроці 2–3.
 """
 from __future__ import annotations
-
+import asyncio
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+from loguru import logger
 from supabase import AsyncClient
+
+from ai.embeddings import generate_embedding
 
 
 # ─── Users ─────────────────────────────────────────────────────────────────
@@ -42,16 +44,6 @@ async def get_or_create_user(
     return response.data[0]
 
 
-async def get_user_by_tg_id(db: AsyncClient, tg_id: int) -> Optional[dict]:
-    """Повертає юзера по Telegram ID або None якщо не знайдено."""
-    response = (
-        await db.table("users")
-        .select("*")
-        .eq("tg_id", tg_id)
-        .maybe_single()
-        .execute()
-    )
-    return response.data
 
 
 async def update_user(db: AsyncClient, user_id: UUID, **kwargs) -> dict:
@@ -79,7 +71,6 @@ async def delete_user(db: AsyncClient, user_id: UUID) -> None:
 # ─── Transactions ───────────────────────────────────────────────────────────
 
 async def _embed_and_save_transaction(db: AsyncClient, tx: dict):
-    from ai.embeddings import generate_embedding
     text = f"Сума: {tx.get('amount')}. Тип: {tx.get('type')}. Опис: {tx.get('description', '')}"
     try:
         vector = await generate_embedding(text)
@@ -91,14 +82,12 @@ async def _embed_and_save_transaction(db: AsyncClient, tx: dict):
             "metadata": {"type": tx.get("type"), "amount": tx.get("amount")}
         }).execute()
     except Exception as e:
-        import logging
-        logging.error(f"Failed to save embedding: {e}")
+        logger.error(f"Failed to save embedding: {e}")
 
 async def add_transaction(db: AsyncClient, **kwargs) -> dict:
     """Додає нову транзакцію. kwargs повинен відповідати схемі таблиці transactions."""
     response = await db.table("transactions").insert(kwargs).execute()
     tx = response.data[0]
-    import asyncio
     asyncio.create_task(_embed_and_save_transaction(db, tx))
     return tx
 
@@ -106,30 +95,12 @@ async def bulk_insert_transactions(db: AsyncClient, transactions: list[dict]) ->
     """Масовий інсерт транзакцій (для CSV імпорту). Один запит = весь список."""
     response = await db.table("transactions").insert(transactions).execute()
     inserted_txs = response.data
-    import asyncio
     for tx in inserted_txs:
         asyncio.create_task(_embed_and_save_transaction(db, tx))
     return inserted_txs
 
 
-# ─── Financial Snapshot & Vector Search ─────────────────────────────────────
-
-async def search_similar_transactions(db: AsyncClient, user_id: UUID, query: str, limit: int = 5) -> list[dict]:
-    """Векторний пошук по транзакціях юзера (match_embeddings RPC)."""
-    from ai.embeddings import generate_embedding
-    query_vector = await generate_embedding(query)
-    
-    response = (
-        await db.rpc(
-            "match_embeddings", 
-            {
-                "query_embedding": query_vector, 
-                "p_user_id": str(user_id), 
-                "match_count": limit
-            }
-        ).execute()
-    )
-    return response.data
+# ─── Financial Snapshot ─────────────────────────────────────────────────────
 
 async def get_monthly_balance(db: AsyncClient, user_id: UUID) -> dict:
     """
@@ -166,8 +137,6 @@ async def get_spending_trends(db: AsyncClient, user_id: UUID, months: int = 3) -
 
 async def get_db_stats(db: AsyncClient, user_id: UUID) -> tuple[int, list[dict]]:
     """Повертає кількість тижнів від першої транзакції та всі витрати по категоріям за поточний місяць."""
-    from datetime import datetime
-    
     # 1. Отримуємо дату першої транзакції
     oldest_tx_resp = (
         await db.table("transactions")
@@ -205,16 +174,6 @@ async def get_db_stats(db: AsyncClient, user_id: UUID) -> tuple[int, list[dict]]
     return weeks_in_db, all_cats
 
 
-async def get_top_expense_categories(db: AsyncClient, user_id: UUID, limit: int = 5) -> list[dict]:
-    """Топ категорій витрат за поточний місяць."""
-    response = (
-        await db.table("top_expense_categories")
-        .select("*")
-        .eq("user_id", str(user_id))
-        .limit(limit)
-        .execute()
-    )
-    return response.data
 
 
 async def get_recent_transactions(db: AsyncClient, user_id: UUID, limit: int = 3) -> list[dict]:

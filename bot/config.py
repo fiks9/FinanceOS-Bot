@@ -42,8 +42,3 @@ def get_settings() -> Settings:
     """
     return Settings()  # type: ignore[call-arg]
 
-
-# Зручний аліас для зворотної сумісності в коді бота
-# Перший виклик ініціалізує Settings і перевіряє наявність всіх ключів
-settings = None  # type: ignore[assignment]
-# Буде замінено в bot/run.py: from bot.config import get_settings; settings = get_settings()

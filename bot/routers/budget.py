@@ -16,11 +16,6 @@ from ai.digest import generate_weekly_digest
 router = Router(name="budget")
 
 
-def _format_number(n: float) -> str:
-    """Форматуємо число: 30500 → '30 500'"""
-    return fmt_amt(n)
-
-
 def get_comfort_label(level: int) -> str:
     if level >= 9:
         return "<b>🛡 Режим:</b> Сувора економія (Максимальне заощадження)"
@@ -132,7 +127,7 @@ def _build_budget_report(user: dict, balance: dict, recent_txns: list, insight: 
                 if not display_name:
                     display_name = "Витрата"
                     
-            txns_text += f"• {display_name} ({sign}{_format_number(t['amount'])} {currency})\n"
+            txns_text += f"• {display_name} ({sign}{fmt_amt(t['amount'])} {currency})\n"
     else:
         txns_text = "<i>Поки немає записів</i>\n"
 
@@ -142,11 +137,11 @@ def _build_budget_report(user: dict, balance: dict, recent_txns: list, insight: 
     report = (
         f"📊 <b>Фінансовий звіт — {month_name}</b>\n"
         f"{comfort_label}\n\n"
-        f"🟢 Надходження: {_format_number(total_income)} {currency}\n"
-        f"🔴 Витрачено: {_format_number(total_expenses)} {currency}\n\n"
-        f"💰 Ваш залишок: {_format_number(remaining_budget)} / {_format_number(current_budget_limit)} {currency}\n"
+        f"🟢 Надходження: {fmt_amt(total_income)} {currency}\n"
+        f"🔴 Витрачено: {fmt_amt(total_expenses)} {currency}\n\n"
+        f"💰 Ваш залишок: {fmt_amt(remaining_budget)} / {fmt_amt(current_budget_limit)} {currency}\n"
         f"{bar} ({remaining_pct:.0f}%)\n\n"
-        f"⏱ Денний ліміт: {_format_number(daily_limit)} {currency} / день\n\n"
+        f"⏱ Денний ліміт: {fmt_amt(daily_limit)} {currency} / день\n\n"
         f"📉 <b>Останні записи:</b>\n"
         f"{txns_text}\n"
         f"💡 <b>AI-Аналіз:</b> {insight}"

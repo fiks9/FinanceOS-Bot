@@ -2,7 +2,6 @@
 FSM States — aiogram 3.x StatesGroup визначення для всіх сценаріїв бота.
 
 Принцип: кожен сценарій = окремий StatesGroup клас.
-FSMContext зберігається в MemoryStorage (MVP) → при рестарті бота стани скидаються.
 """
 from aiogram.fsm.state import State, StatesGroup
 
@@ -25,8 +24,6 @@ class AddTransactionStates(StatesGroup):
     Основний шлях — через Intent Detection (без FSM).
     Цей FSM — fallback для уточнення.
     """
-    waiting_for_amount   = State()   # Уточнення суми
-    waiting_for_category = State()   # Вибір категорії серед доступних
     waiting_for_confirm  = State()   # Підтвердження перед збереженням
     missing_goal_confirm = State()   # Підтвердження створення цілі
     waiting_for_goal_target = State() # Очікуємо детальну інформацію по цілі
@@ -37,7 +34,6 @@ class GoalStates(StatesGroup):
     waiting_for_name     = State()   # Назва цілі ("Планшет", "Відпустка")
     waiting_for_amount   = State()   # Цільова сума
     waiting_for_deadline = State()   # Бажана дата (або "без дати")
-    waiting_for_confirm  = State()   # Підтвердження
 
 
 class ManageGoalStates(StatesGroup):
@@ -49,11 +45,10 @@ class ManageGoalStates(StatesGroup):
 class CSVStates(StatesGroup):
     """Обробка CSV виписки."""
     waiting_for_file    = State()   # Очікуємо файл (якщо юзер погодився)
-    processing          = State()   # Файл отримано, йде обробка
-    reviewing_results   = State()   # Юзер переглядає результати категоризації
     waiting_for_confirm = State()   # Зберегти чи скасувати
 
 
 class EditTransactionStates(StatesGroup):
     """Повний перезапис існуючої транзакції."""
     waiting_for_edit_input = State()  # Очікуємо нове повідомлення (напр. "300 Таксі")
+
