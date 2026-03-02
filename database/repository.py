@@ -343,6 +343,73 @@ async def save_message(
     return response.data[0]
 
 
+async def get_monthly_averages(db: AsyncClient, user_id: UUID, months: int = 3) -> dict:
+    """
+    Повертає середній дохід та витрати юзера за останні N місяців,
+    а також кількість повних місяців з даними.
+    Використовується для автоматичного оновлення behavior analytics.
+    """
+    cutoff = datetime.now().replace(day=1)
+    # Зсуваємо назад на N місяців вручну
+    month = cutoff.month - months
+    year = cutoff.year + (month - 1) // 12
+    month = ((month - 1) % 12) + 1
+    from_date = cutoff.replace(year=year, month=month).isoformat()
+
+    response = (
+        await db.rpc(
+            "get_spending_trends",
+            {"p_user_id": str(user_id), "p_months": months},
+        )
+        .execute()
+    )
+    rows = response.data or []
+
+    if not rows:
+        return {"avg_income": 0.0, "avg_expenses": 0.0, "months_with_data": 0}
+
+    months_with_income = [r for r in rows if (r.get("total_income") or 0) > 0]
+    months_with_expenses = [r for r in rows if (r.get("total_expenses") or 0) > 0]
+
+    avg_income = (
+        sum(r.get("total_income", 0) or 0 for r in months_with_income) / len(months_with_income)
+        if months_with_income else 0.0
+    )
+    avg_expenses = (
+        sum(r.get("total_expenses", 0) or 0 for r in rows) / len(rows)
+        if rows else 0.0
+    )
+
+    return {
+        "avg_income": round(avg_income, 2),
+        "avg_expenses": round(avg_expenses, 2),
+        "months_with_data": len(rows),
+    }
+
+
+async def get_first_transaction_date(db: AsyncClient, user_id: UUID) -> datetime | None:
+    """Повертає дату першої транзакції юзера (для перевірки мінімального порогу даних)."""
+    response = (
+        await db.table("transactions")
+        .select("transaction_date")
+        .eq("user_id", str(user_id))
+        .eq("ignore_in_stats", False)
+        .order("transaction_date")
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        return None
+    try:
+        raw = response.data[0]["transaction_date"]
+        if isinstance(raw, str):
+            raw = raw.split(".")[0].split("+")[0].replace("Z", "")
+            return datetime.fromisoformat(raw)
+    except Exception:
+        return None
+    return None
+
+
 async def get_categories_for_user(db: AsyncClient, user_id: UUID) -> list[dict]:
     """
     Повертає категорії: глобальні (user_id IS NULL) + кастомні юзера.

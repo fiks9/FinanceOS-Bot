@@ -1,0 +1,10 @@
+.git
+.venv
+venv
+env
+__pycache__
+*.pyc
+.env
+.idea
+.vscode
+Code Audit/

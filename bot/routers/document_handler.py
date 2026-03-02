@@ -12,6 +12,7 @@ Document Handler Router — Smart Import банківських виписок (
   4. Юзер натискає "Зберегти" або "Скасувати"
   5. Bulk insert в Supabase → звіт
 """
+import asyncio
 import json
 from bot.utils import fmt_amt
 
@@ -22,6 +23,7 @@ from loguru import logger
 
 from ai.csv_parser import parse_csv, ParseResult, BankFormat
 from ai.pdf_parser import parse_pdf
+from bot.services.analytics import update_behavior_analytics
 from bot.states import CSVStates
 from database import repository as repo
 
@@ -284,5 +286,9 @@ async def handle_csv_confirm(
         f"Переглянь свій оновлений звіт: /budget"
     )
     logger.info(f"Import: saved {count} transactions for user {user['id']}")
+
+    # Фоновий перерахунок аналітики поведінки після масового імпорту
+    asyncio.create_task(update_behavior_analytics(db, str(user["id"])))
+
     await callback.answer()
 

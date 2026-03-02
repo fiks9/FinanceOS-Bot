@@ -15,6 +15,7 @@ class IntentType(str, Enum):
     FIN_QUESTION = "FIN_QUESTION"
     SET_GOAL = "SET_GOAL"
     MANAGE_GOAL = "MANAGE_GOAL"
+    UPDATE_PROFILE = "UPDATE_PROFILE"
     GENERAL_CHAT = "GENERAL_CHAT"
     EDIT_LAST_ACTION = "EDIT_LAST_ACTION"
     UNKNOWN = "UNKNOWN"
@@ -54,6 +55,12 @@ class GoalManageExtract(BaseModel):
     action: Literal["update_collected", "update_target", "delete"] = Field(description="Тип дії (зміна зібраного, зміна цілі або видалення цілі)")
     goal_name: str = Field(description="Назва існуючої цілі, з якою проводимо дію")
     new_amount: Optional[float] = Field(None, gt=0, description="Нове значення суми (тільки для update_collected або update_target)")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class ProfileUpdateExtract(BaseModel):
+    """Витягнуте оновлення профілю з тексту."""
+    new_income: Optional[float] = Field(None, gt=0, description="Новий місячний дохід, якщо вказано.")
     confidence: float = Field(ge=0.0, le=1.0)
 
 

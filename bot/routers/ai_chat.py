@@ -35,11 +35,12 @@ from loguru import logger
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ai.advisor import answer_financial_question, _TONE_PROMPTS
-from ai.intent import detect_intent, extract_transaction, extract_goal, extract_goal_management, generate_confirmation
+from ai.intent import detect_intent, extract_transaction, extract_goal, extract_goal_management, extract_profile_update, generate_confirmation
 from ai.llm import get_fast_llm
 from bot.services.helpers import CONFIDENCE_THRESHOLD, _find_goal_id, _find_category_id
+from bot.services.analytics import update_behavior_analytics
 from bot.states import AddTransactionStates, GoalStates
-from models.schemas import IntentType, TransactionExtract
+from models.schemas import IntentType, TransactionExtract, ProfileUpdateExtract
 from database import repository as repo
 
 router = Router(name="ai_chat")
@@ -175,6 +176,9 @@ async def handle_free_text(message: Message, user: dict, db, state: FSMContext) 
     elif intent_result.intent == IntentType.MANAGE_GOAL:
         await _handle_manage_goal(message, text, user, db)
 
+    elif intent_result.intent == IntentType.UPDATE_PROFILE:
+        await _handle_update_profile(message, text, user, db)
+
     elif intent_result.intent == IntentType.GENERAL_CHAT:
         await _handle_general_chat(message, text, user, db)
 
@@ -237,9 +241,17 @@ async def _handle_add_transaction(
     # ── 4. Перевірка балансу перед збереженням (тільки для expense) ───────────
     if txn.type == "expense" and not txn.ignore_in_stats:
         balance = await repo.get_monthly_balance(db, user_id)
-        budget_limit = (user.get("monthly_income") or 0) + (balance.get("total_income") or 0)
+        total_income = balance.get("total_income") or 0
         spent = balance.get("total_expenses") or 0
-        remaining = budget_limit - spent
+        # Для перевірки overspend: реальний дохід цього місяця,
+        # або реальний середній (аналітика), або очікуваний з профілю
+        income_ref = (
+            total_income
+            or user.get("monthly_income_actual")
+            or user.get("monthly_income")
+            or 0
+        )
+        remaining = income_ref - spent
 
         if txn.amount > remaining:
             # Зберігаємо pending транзакцію в FSM state
@@ -522,7 +534,12 @@ async def _save_and_confirm(message, user_id: str, category_id, txn, db) -> None
         confirmation = f"{sign} Зберіг: {fmt_amt(txn.amount)} грн — {desc}{goal_msg}"
 
     await message.answer(confirmation)
-    
+
+    # Фонове оновлення аналітики поведінки (не блокує відповідь)
+    if txn.type in ("income", "expense") and not txn.ignore_in_stats:
+        import asyncio
+        asyncio.create_task(update_behavior_analytics(db, user_id))
+
     # Зберігаємо контекст розмови
     try:
         # Для _save_and_confirm text ми не знаємо точно оригінального тексту (може бути state reload),
@@ -558,6 +575,32 @@ async def _handle_fin_question(message: Message, text: str, user: dict, db, stat
         await message.answer(
             "⚠️ Не вдалось отримати відповідь. Спробуй /budget для перегляду свого стану."
         )
+
+
+async def _handle_update_profile(message: Message, text: str, user: dict, db) -> None:
+    """Оновлює профіль юзера (наприклад, місячний дохід) за запитом у вільному тексті."""
+    try:
+        data = await extract_profile_update(text)
+    except Exception as e:
+        logger.error(f"Profile update extraction failed: {e}")
+        await message.answer("⚠️ Не вдалось розпізнати нові дані. Спробуй написати чіткіше: «мій дохід тепер 25000»")
+        return
+
+    if data.confidence < CONFIDENCE_THRESHOLD:
+        await message.answer("🤔 Не впевнений що правильно зрозумів. Уточни, будь ласка: «мій дохід тепер 25000 грн/міс»")
+        return
+
+    if data.new_income:
+        old_income = user.get("monthly_income", 0) or 0
+        await repo.update_user(db, user["id"], monthly_income=data.new_income)
+        currency = user.get("currency", "₴")
+        await message.answer(
+            f"✅ Місячний дохід оновлено: {fmt_amt(old_income)} → <b>{fmt_amt(data.new_income)} {currency}</b>\n"
+            f"Бюджет у /budget тепер розраховуватиметься від нової суми.",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer("🤔 Не знайшов суму доходу. Напиши так: «мій дохід тепер 25000 грн»")
 
 
 async def _handle_general_chat(message: Message, text: str, user: dict, db) -> None:

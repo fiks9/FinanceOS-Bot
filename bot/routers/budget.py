@@ -86,37 +86,58 @@ async def _fetch_snapshot_data(db, user: dict) -> tuple:
 
 def _build_budget_report(user: dict, balance: dict, recent_txns: list, insight: str) -> str:
     now = datetime.now()
-    UKR_MONTHS = ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", 
+    UKR_MONTHS = ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
                   "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"]
     month_name = f"{UKR_MONTHS[now.month - 1]} {now.year}"
     currency = user.get("currency", "₴")
-    
-    # Ліміт витрат (те що людина вказує при онбордингу як середній дохід)
-    budget_limit = user.get("monthly_income", 0) or 0
     comfort_level = user.get("comfort_level", 5)
 
+    # Очікуваний дохід — довідкова цифра з профілю (не впливає на баланс)
+    income_expected = user.get("monthly_income", 0) or 0
+    # Реальний середній дохід з аналітики (якщо вже є достатньо даних)
+    income_actual_avg = user.get("monthly_income_actual") or 0
+
+    # Баланс виключно на основі реальних транзакцій
     total_income = balance.get("total_income") or 0
     total_expenses = balance.get("total_expenses") or 0
-    # Фактичний загальний бюджет: базовий + додаткові надходження
-    current_budget_limit = budget_limit + total_income
-    remaining_budget = current_budget_limit - total_expenses
-    
+    remaining_budget = total_income - total_expenses
+
     # ── Дні та ліміти ──────────────────────────────────────────────────────────
     _, total_days = calendar.monthrange(now.year, now.month)
     remaining_days = total_days - now.day + 1
-    
-    daily_limit = remaining_budget / remaining_days if remaining_days > 0 and remaining_budget > 0 else 0
-    
-    remaining_pct = (remaining_budget / current_budget_limit * 100) if current_budget_limit > 0 else 0
+
+    # Для денного ліміту: якщо дохід цього місяця ще не зафіксований —
+    # беремо очікуваний як орієнтир для підрахунку
+    income_ref = total_income if total_income > 0 else income_expected
+    remaining_ref = income_ref - total_expenses
+    daily_limit = remaining_ref / remaining_days if remaining_days > 0 and remaining_ref > 0 else 0
+
+    remaining_pct = (remaining_budget / total_income * 100) if total_income > 0 else 0
     comfort_label = get_comfort_label(comfort_level)
-    
+
+    # ── Рядок порівняння (очікуване vs реальне) ──────────────────────────────
+    comparison_line = ""
+    if income_actual_avg > 0 and abs(income_actual_avg - income_expected) > income_expected * 0.05:
+        diff = income_actual_avg - income_expected
+        sign = "+" if diff > 0 else ""
+        comparison_line = (
+            f"📈 Реальний середній дохід: {fmt_amt(income_actual_avg)} {currency} "
+            f"({sign}{fmt_amt(diff)})\n"
+        )
+    elif total_income == 0 and income_expected > 0:
+        comparison_line = f"⏳ Очікуваний дохід: {fmt_amt(income_expected)} {currency} (ще не зафіксовано)\n"
+
+    expenses_actual_avg = user.get("monthly_expenses_actual") or 0
+    if expenses_actual_avg > 0 and total_expenses > expenses_actual_avg * 1.1:
+        diff = total_expenses - expenses_actual_avg
+        comparison_line += f"⚠️ Витрати на {fmt_amt(diff)} вище середнього\n"
+
     # ── Останні операції ──────────────────────────────────────────────────
     txns_text = ""
     if recent_txns:
         for t in recent_txns:
             cat = t.get("categories") or {}
             cat_name = cat.get("name", "Інше")
-            
             if t["type"] == "income":
                 sign = "+"
                 display_name = cat_name
@@ -126,21 +147,21 @@ def _build_budget_report(user: dict, balance: dict, recent_txns: list, insight: 
                 display_name = desc if desc else cat_name
                 if not display_name:
                     display_name = "Витрата"
-                    
             txns_text += f"• {display_name} ({sign}{fmt_amt(t['amount'])} {currency})\n"
     else:
         txns_text = "<i>Поки немає записів</i>\n"
 
-    # ── Будівництво звіту ──────────────────────────────────
-    bar = _colored_progress_bar(remaining_budget, current_budget_limit, length=10)
-    
+    # ── Будівництво звіту ──────────────────────────────────────────────────
+    bar = _colored_progress_bar(remaining_budget, total_income, length=10)
+
     report = (
         f"📊 <b>Фінансовий звіт — {month_name}</b>\n"
         f"{comfort_label}\n\n"
         f"🟢 Надходження: {fmt_amt(total_income)} {currency}\n"
         f"🔴 Витрачено: {fmt_amt(total_expenses)} {currency}\n\n"
-        f"💰 Ваш залишок: {fmt_amt(remaining_budget)} / {fmt_amt(current_budget_limit)} {currency}\n"
-        f"{bar} ({remaining_pct:.0f}%)\n\n"
+        f"💰 Ваш залишок: {fmt_amt(remaining_budget)} {currency}\n"
+        f"{bar} ({remaining_pct:.0f}%)\n"
+        f"{comparison_line}\n"
         f"⏱ Денний ліміт: {fmt_amt(daily_limit)} {currency} / день\n\n"
         f"📉 <b>Останні записи:</b>\n"
         f"{txns_text}\n"

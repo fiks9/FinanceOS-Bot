@@ -165,7 +165,10 @@ async def answer_financial_question(
     """
     user_id = user["id"]
     currency = user.get("currency", "₴")
-    budget_limit = user.get("monthly_income", 0) or 0
+    # Очікуваний дохід — довідкова цифра (не додається до балансу автоматично)
+    income_expected = user.get("monthly_income", 0) or 0
+    # Реальний середній дохід з аналітики (якщо достатньо даних)
+    income_actual_avg = user.get("monthly_income_actual") or 0
     comm_style = user.get("communication_style", "balanced")
 
     # ── Завантажуємо фінансовий контекст ─────────────────────────────────────
@@ -173,8 +176,21 @@ async def answer_financial_question(
 
     total_income = balance.get("total_income") or 0
     total_expenses = balance.get("total_expenses") or 0
-    current_limit = budget_limit + total_income
-    remaining = current_limit - total_expenses
+
+    # Баланс лише на основі реальних транзакцій.
+    # Для порад і планування використовуємо найкращу оцінку доходу:
+    # 1. Реальні транзакції цього місяця (якщо є)
+    # 2. Реальний середній за 3 місяці (якщо є)
+    # 3. Очікуваний з профілю (fallback)
+    if total_income > 0:
+        current_limit = total_income
+    elif income_actual_avg > 0:
+        current_limit = income_actual_avg
+    else:
+        current_limit = income_expected
+
+    budget_limit = income_expected  # для відображення в промпті
+    remaining = total_income - total_expenses  # реальний залишок
 
     mandatory_expenses = 0
     has_food_or_transport = False
@@ -292,15 +308,23 @@ async def generate_budget_insight(user: dict, db) -> str:
     """Генерує короткий (1-2 речення) персоналізований інсайт для звіту /budget."""
     user_id = user["id"]
     currency = user.get("currency", "₴")
-    budget_limit = user.get("monthly_income", 0) or 0
+    income_expected = user.get("monthly_income", 0) or 0
+    income_actual_avg = user.get("monthly_income_actual") or 0
     comm_style = user.get("communication_style", "balanced")
 
     balance, all_cats, goals, history, trends, weeks_in_db = await _load_context(db, user_id)
-    
+
     total_income = balance.get("total_income") or 0
     total_expenses = balance.get("total_expenses") or 0
-    current_limit = budget_limit + total_income
-    remaining = current_limit - total_expenses
+    remaining = total_income - total_expenses
+
+    # Для planning reference: реальний середній або очікуваний
+    if total_income > 0:
+        current_limit = total_income
+    elif income_actual_avg > 0:
+        current_limit = income_actual_avg
+    else:
+        current_limit = income_expected
 
     mandatory_expenses = 0
     for c in all_cats:
@@ -317,34 +341,27 @@ async def generate_budget_insight(user: dict, db) -> str:
     remaining_days = total_days - now.day + 1
     daily_limit = remaining / remaining_days if remaining_days > 0 and remaining > 0 else 0
 
-    tone_instructions = _TONE_PROMPTS.get(comm_style, _TONE_PROMPTS["balanced"])
+    top_cats_str = _format_categories(all_cats)
+    goals_str = _format_goals(goals)
 
-    system_prompt = _ADVISOR_SYSTEM.format(
-        tone_instructions=tone_instructions,
-        budget_limit=fmt_amt(budget_limit),
-        total_income=fmt_amt(total_income),
-        current_limit=fmt_amt(current_limit),
-        total_expenses=fmt_amt(total_expenses),
-        mandatory_expenses=fmt_amt(mandatory_expenses),
-        safety_buffer=fmt_amt(safety_buffer),
-        remaining=fmt_amt(remaining),
-        free_balance=fmt_amt(free_balance),
-        top_categories=_format_categories(all_cats),
-        spending_trends=_format_trends(trends),
-        goals=_format_goals(goals),
-        savings_plans="Не застосовується для загального звіту.",
-        data_sufficiency_warning="Дані для аналізу достатні.",
-        covered_topics_section="",
-        currency=currency,
+    system_prompt = (
+        "Ти — лаконічний фінансовий аналітик. "
+        "Твоє завдання: одне коротке речення (максимум 15 слів) — найважливіший висновок або порада по фінансовому стану. "
+        "ЗАБОРОНЕНО: будь-які вступні фрази, структура 'Частина 1/2/3', перерахування, заголовки. "
+        "Тільки пряма суть. Без markdown. Відповідаєш українською."
     )
     prompt = (
-        "Сформуй короткий і чіткий фінансовий інсайт або пораду на основі цих даних (максимум 1 коротке речення, до 15 слів). "
-        "Пиши як жива людина (реальний експерт). "
-        "ОДРАЗУ переходь до суті. КАТЕГОРИЧНО заборонено використовувати вступні фрази "
-        "(типу 'За вашими даними...', 'Аналізуючи стан...', 'Найважливішою порадою буде...'). "
-        "Якщо немає витрат — просто підбадьор розпочати їх записувати."
+        f"Дані за поточний місяць:\n"
+        f"- Дохід: {fmt_amt(current_limit)} {currency}\n"
+        f"- Витрачено: {fmt_amt(total_expenses)} {currency}\n"
+        f"- Залишок: {fmt_amt(remaining)} {currency}\n"
+        f"- Вільний залишок (без обов'язкових): {fmt_amt(free_balance)} {currency}\n"
+        f"- Денний ліміт: {fmt_amt(daily_limit)} {currency}/день\n"
+        f"- Топ витрат:\n{top_cats_str}\n"
+        f"- Цілі:\n{goals_str}\n\n"
+        f"Дай одне речення — ключовий висновок або найважливішу пораду."
     )
-    
+
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=prompt)

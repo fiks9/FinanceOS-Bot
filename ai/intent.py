@@ -17,7 +17,7 @@ from bot.utils import fmt_amt
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ai.llm import get_smart_llm
-from models.schemas import IntentSchema, IntentType, TransactionExtract, GoalExtract, GoalManageExtract
+from models.schemas import IntentSchema, IntentType, TransactionExtract, GoalExtract, GoalManageExtract, ProfileUpdateExtract
 
 
 # ─── Системні промпти ─────────────────────────────────────────────────────────
@@ -34,6 +34,8 @@ _INTENT_SYSTEM = """Ти — аналізатор повідомлень для 
   Приклади: "хочу накопичити 20000 на ноутбук", "постав ціль — планшет за 12000", "хочу накопичити на подорож" (тут amount і months = null)
 - MANAGE_GOAL: користувач хоче змінити або видалити існуючу ціль.
   Приклади: "видали ціль планшет", "змінити суму цілі відпустка на 30000", "оновити зібране для цілі MacBook — 5000"
+- UPDATE_PROFILE: користувач повідомляє про зміну свого доходу або хоче оновити місячний заробіток у профілі.
+  Приклади: "я вже заробляю 25к на місяць", "виправ мій заробіток на 30000", "мій дохід тепер 40000", "оновити зарплату до 25000", "зарплата змінилась — тепер 35к"
 - FIN_QUESTION: фінансове питання, прохання про пораду, аналіз витрат чи планування.
   Приклади: "чи можу я дозволити відпустку", "скільки я витратив цього місяця", "як накопичити на машину", "чи варто відкладати гроші", "порадь як заощадити", "проведи аналіз моїх фінансів", "мій заробіток 25к, витрати 20к, чи можу дозволити подорож?"
 - GENERAL_CHAT: привітання, завершення розмови, загальні питання про бота, smalltalk, та будь-яке дружнє спілкування.
@@ -84,6 +86,14 @@ _GOAL_MANAGE_SYSTEM = """Ти — парсер дій з фінансовими 
 - action: "update_collected" (зміна вже зібраної суми), "update_target" (зміна загальної цілі), або "delete" (повне видалення цілі).
 - goal_name: назва цілі, яку треба змінити або видалити (наприклад 'Планшет', 'Відпустка').
 - new_amount: нове значення суми. Якщо action="delete", то null.
+- confidence: впевненість (0.0-1.0)
+Відповідай ТІЛЬКИ у вказаному JSON форматі."""
+
+
+_PROFILE_UPDATE_SYSTEM = """Ти — парсер оновлень профілю користувача.
+Витягни з повідомлення новий місячний дохід (new_income).
+Правила:
+- new_income: позитивне число. Розумій скорочення: "25к" = 25000, "30 тис" = 30000.
 - confidence: впевненість (0.0-1.0)
 Відповідай ТІЛЬКИ у вказаному JSON форматі."""
 
@@ -179,6 +189,23 @@ async def extract_goal_management(text: str) -> GoalManageExtract:
     ]
 
     result: GoalManageExtract = await structured_llm.ainvoke(messages)
+    return result
+
+
+async def extract_profile_update(text: str) -> ProfileUpdateExtract:
+    """
+    Витягуємо нові дані профілю з тексту.
+    Викликається тільки якщо intent == UPDATE_PROFILE.
+    """
+    llm = get_smart_llm()
+    structured_llm = llm.with_structured_output(ProfileUpdateExtract)
+
+    messages = [
+        SystemMessage(content=_PROFILE_UPDATE_SYSTEM),
+        HumanMessage(content=text),
+    ]
+
+    result: ProfileUpdateExtract = await structured_llm.ainvoke(messages)
     return result
 
 

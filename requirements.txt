@@ -12,6 +12,9 @@ langchain-groq>=0.2.4,<1.0
 langchain-community>=0.3.20,<1.0
 
 # --- Embeddings (локальна модель all-MiniLM-L6-v2) ---
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+torchvision==0.20.1+cpu
 sentence-transformers==3.4.1
 
 # --- Supabase (async підтримка через httpx) ---
